@@ -13,23 +13,23 @@
 - 可以安装并启用 LocalDevVPN；
 - 继续复用 WLOC 的网页选点、链接解析、坐标系转换、收藏和快捷指令入口。
 
-## 为什么旧链路不能作为 iOS 27 后端
+## 旧链路只保留为 legacy backend
 
-旧 WLOC 的写入与定位链路是：
+旧 WLOC：
 
 ```text
 网页
-  -> https://gs-loc.apple.com/wloc-settings/save
+  -> gs-loc.apple.com/wloc-settings/save
   -> 代理脚本保存 wloc_settings
   -> MITM /clls/wloc 响应
-  -> locationd 消费被修改的网络定位结果
+  -> locationd 消费修改后的网络定位
 ```
 
-这个模式继续作为 legacy backend 保留，但 iOS 27 CoreDevice 页面不得自动回退到它。这样真机失败时能够看到真正的 transport 错误，而不是出现“网页显示保存成功但系统定位没变”的假阳性。
+iOS 27 CoreDevice 页面不得自动回退到这条链路，避免“网页显示成功但系统定位没有变化”的假阳性。
 
 ## 新链路
 
-Roam-Control 已经验证的目标协议路径是：
+Roam-Control 已验证的目标协议路径仍然是：
 
 ```text
 RemotePairing
@@ -42,72 +42,71 @@ RemotePairing
 
 恢复真实位置使用 `LocationSimulation.clear()`。
 
-LocalDevVPN 在这里的角色仅是 **device tunnel**。它可以让本机原生程序访问 iPhone 的 RemotePairing/CoreDevice 服务，但它本身不执行 `LocationSimulation`。
+真正变化的是**谁执行这套协议**。
 
-## 当前缺口：Browser Transport
+### 最初方案：Browser Transport（不再作为主路线）
 
-Safari 没有 WLOC 所需的 raw TCP socket 和 Bonjour/mDNS service browse API。因此仅有：
+Safari 没有 raw TCP socket 和 Bonjour/mDNS browse API。即使 LocalDevVPN 把 `10.7.0.1` 反射回设备自身，网页仍不能直接和 RemotePairing 服务对话。为了补这个缺口而在浏览器里重写 `idevice` + WASM + WebSocket/TCP bridge，工程复杂度太高。
 
-```text
-Safari + LocalDevVPN
-```
+### 当前主路线：WLOC-enabled LocalDevVPN
 
-还不足以完成：
+LocalDevVPN 当前 App 已经注册 `localdevvpn://` URL Scheme，而且本身就是 10.7.0.1 device tunnel 的提供者。因此新版 WLOC 改成：
 
 ```text
-Safari -> RemotePairing -> RSD -> DVT
+WLOC Web
+  -> localdevvpn://wloc/set?...       # 选点/控制
+  -> WLOC-enabled LocalDevVPN         # Native CoreDevice engine
+  -> 10.7.0.1 device tunnel
+  -> RemotePairing
+  -> RSD
+  -> DVT
+  -> LocationSimulation
 ```
 
-新版网页先固定 transport 接口，后续可替换实现，而不重新设计选点 UI。
+这让 Safari 只负责 UI 和命令，不需要 raw TCP，也不需要持有 pairing record。
 
-## Transport v1
+**注意：当前原版/App Store LocalDevVPN 尚未实现 `wloc` host；需要集成 WLOC bridge 的构建。**
 
-浏览器侧使用 WebSocket，控制帧为 JSON；后续 raw TCP 数据帧保留二进制 WebSocket frame。
+完整 URL contract 和 LocalDevVPN 集成说明见 `docs/LOCALDEVVPN-WLOC-BRIDGE.md`。
 
-### 请求
+## Bridge v1
 
-```json
-{
-  "v": 1,
-  "id": "wloc-abc-1",
-  "method": "transport.capabilities",
-  "params": {}
-}
+固定操作：
+
+```text
+localdevvpn://wloc/pair
+localdevvpn://wloc/set
+localdevvpn://wloc/clear
+localdevvpn://wloc/status
 ```
 
-### 成功响应
+所有请求带：
 
-```json
-{
-  "v": 1,
-  "id": "wloc-abc-1",
-  "ok": true,
-  "result": {}
-}
+```text
+v=1
+request=<随机 request id>
+callback=<HTTPS WLOC callback>
 ```
 
-### 失败响应
+`set` 额外带：
 
-```json
-{
-  "v": 1,
-  "id": "wloc-abc-1",
-  "ok": false,
-  "error": "reason"
-}
+```text
+latitude=<WGS84>
+longitude=<WGS84>
 ```
 
-第一阶段保留的方法名：
+App 完成后只回传窄状态：
 
-- `transport.capabilities`
-- `location.set { latitude, longitude }`
-- `location.clear`
+```text
+status=ok|error
+code=<固定错误码，可选>
+```
 
-**注意：** 上述 `location.*` 只是前端 RPC 契约，不能把 CoreDevice 配对凭据上传到 Cloudflare。最终实现若把 `idevice` 协议引擎搬进浏览器/WASM，应进一步把接口下沉为 `service.browse`、`tcp.open`、raw binary frame、`tcp.close`，使 transport 只负责网络通道而不持有 pairing record。
+Pairing record、AltIRK、UDID、PSK、原始错误、CoreDevice service 身份不得放 URL。
 
 ## 安全边界
 
-以下内容必须只保存在设备本地执行环境，不得写入 Cloudflare Worker、日志、Analytics 或 URL：
+以下内容必须只保存在设备本地执行环境，不得写入 Cloudflare Worker、日志、Analytics 或 callback URL：
 
 - Remote Pairing record；
 - AltIRK；
@@ -117,40 +116,55 @@ Safari -> RemotePairing -> RSD -> DVT
 
 Worker 继续只承担静态页面、地图链接解析和不含配对秘密的能力描述。
 
-## 分阶段实施
+## 当前代码状态
 
-### Phase 1 — 已在 `ios27-coredevice` 分支落地
+`ios27-coredevice` 分支已经有：
 
 - `/ios27` 独立入口；
 - 与旧 `SAVE_API` 完全解耦；
-- `/api/ios27/capabilities` 能力接口；
-- transport 地址保存在浏览器 `localStorage`；
-- `location.set` / `location.clear` RPC 前端；
-- 无 transport 时明确失败，不伪装成功。
+- `localdevvpn://wloc/pair|set|clear|status` 前端；
+- request id + HTTPS callback；
+- callback request 校验；
+- `/api/ios27/capabilities`；
+- `bridge/localdevvpn/WLOCBridgeProtocol.swift` URL 解析参考；
+- `docs/LOCALDEVVPN-WLOC-BRIDGE.md` LocalDevVPN 集成契约；
+- CI 回归测试，确保新页面不偷偷恢复旧保存代码。
 
-### Phase 2 — transport PoC
+## 接下来真正要做的事
 
-必须在 iOS 27 真机验证：
+### Phase 2A — WLOC-enabled LocalDevVPN PoC
 
-1. LocalDevVPN 开启后 RemotePairing 服务是否可从目标 transport 访问；
-2. transport 能否发现 `_remotepairing._tcp` 以及 TXT 中的 `identifier` / `authTag`；
-3. WebSocket 二进制帧能否无损桥接 TCP；
-4. Safari 对本地 `ws://` / `wss://` 的安全策略是否满足部署方式。
+在 LocalDevVPN App target 中实现：
 
-### Phase 3 — CoreDevice engine
+1. 扩展 `.onOpenURL`，处理 host `wloc`；
+2. `status` 能 callback；
+3. `pair` 复现 Roam-Control 的 on-device pairing；
+4. pairing record 只存本机 Keychain；
+5. `set` 开启/确认 LocalDevVPN 后发现 `_remotepairing._tcp.`；
+6. pair verify → TLS-PSK → RSD → DVT；
+7. `LocationSimulation.set()`；
+8. `clear()`；
+9. callback 返回固定状态码。
 
-优先复用 Roam-Control 已验证的 `idevice` 逻辑，但要把 `tokio::net::TcpStream` 从协议逻辑中抽象出来，使它可以接浏览器 transport。目标调用仍是：
+### Phase 2B — 生命周期
 
-```text
-LocationSimulationClient::new(...)
-location.set(lat, lon)
-location.clear()
-```
+第一版 CoreDevice engine 先跑在主 App 进程，因为它与 Roam-Control 已验证结构最接近。真机验证切回 Safari 后 session 是否会因 suspend 中断。
 
-### Phase 4 — 接回完整 WLOC 选点 UI
+如果会中断，再二选一：
 
-等 Phase 2/3 真机打通后，再把旧页面的地图、收藏、搜索、快捷指令直接切换到新 backend。不要在 transport 未打通前改掉 legacy 首页。
+- 使用 background CoreLocation keepalive；
+- 验证 CoreDevice engine 是否能安全迁到 PacketTunnelProvider 长驻运行。
+
+不能未经真机测试就假定 Network Extension 对自己的 `10.7.0.1` socket 会正常回环。
+
+### Phase 3 — 接回完整 WLOC UI
+
+等 `pair/set/clear` 真机闭环成立后，把旧页面的地图、收藏、搜索和快捷指令接到同一个 deep-link bridge，不再保留手输坐标作为主入口。
 
 ## 当前判定
 
-这条分支现在是“可测试的前端协议骨架”，不是完成品。它解决了代码结构问题：iOS 27 路线已经不再绑定 `gs-loc`，并且把剩余阻塞压缩成一个明确的 Browser Transport 问题。
+剩余阻塞已经不再是“Safari 怎么拿 raw TCP”，而是一个更小、可验证的问题：
+
+> **能否把已知可行的 Roam-Control CoreDevice engine 集成进 LocalDevVPN，并在 iOS 27 正式版上保持定位 session。**
+
+这个问题一旦打通，就满足“不装单独定位 App、不 USB、不依赖同 LAN”的目标；用户侧只需要一个 WLOC-enabled LocalDevVPN。
