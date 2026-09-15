@@ -21,3 +21,7 @@ jobs:
       - run: npm test
       - run: npm run build:check
       - run: npm run pages:build
+      - name: Check native CoreDevice bridge
+        run: |
+          rustup toolchain install stable --profile minimal
+          cargo +stable check --manifest-path bridge/native/Cargo.toml
