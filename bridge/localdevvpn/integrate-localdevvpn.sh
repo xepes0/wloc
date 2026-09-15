@@ -128,7 +128,7 @@ if state_marker not in text:
     text = text.replace(needle, needle + state_marker, 1)
 
 old = '''            ContentView()\n                .onOpenURL { url in\n                    handleURL(url)\n                }'''
-new = '''            ContentView()\n                .overlay(alignment: .bottom) {\n                    WLOCBridgeApprovalView(host: wlocBridge)\n                }\n                .onOpenURL { url in\n                    if !wlocBridge.handleURL(url) {\n                        handleURL(url)\n                    }\n                }'''
+new = '''            ZStack(alignment: .bottom) {\n                ContentView()\n                WLOCBridgeApprovalView(host: wlocBridge)\n            }\n            .onOpenURL { url in\n                if !wlocBridge.handleURL(url) {\n                    handleURL(url)\n                }\n            }'''
 if new not in text:
     if old not in text:
         raise SystemExit("LocalDevVPNApp.swift shape changed: ContentView/onOpenURL block not found")
