@@ -135,9 +135,26 @@ if new not in text:
     text = text.replace(old, new, 1)
 app_swift.write_text(text)
 
-# Link the Rust static library from a root-level folder. WLOC's CoreDevice
-# transport only exists on modern iOS, so the integrated build deliberately
-# raises LocalDevVPN's deployment floor to iOS 17 without changing upstream.
+# WLOC's CoreDevice/RemotePairing transport is a modern-iOS feature. Upstream
+# LocalDevVPN currently hard-codes iOS 14 in its Xcode project. A value appended
+# only to Build.xcconfig is not sufficient because explicit Xcode build settings
+# take precedence over the xcconfig. Patch this temporary checkout to iOS 17 so
+# CI and real-device builds use the same deployment floor without modifying the
+# upstream repository.
+project_path = root / "LocalDevVPN.xcodeproj" / "project.pbxproj"
+project_text = project_path.read_text()
+old_target = "IPHONEOS_DEPLOYMENT_TARGET = 14.0;"
+replacement_target = "IPHONEOS_DEPLOYMENT_TARGET = 17.0;"
+count = project_text.count(old_target)
+if count == 0 and replacement_target not in project_text:
+    raise SystemExit("LocalDevVPN project shape changed: deployment target setting not found")
+if count:
+    project_text = project_text.replace(old_target, replacement_target)
+    project_path.write_text(project_text)
+    print(f"[wloc] raised {count} Xcode deployment-target setting(s) to iOS 17.0")
+
+# Link the Rust static library from a root-level folder. Keep the xcconfig value
+# too so inherited settings and ad-hoc build invocations agree with the project.
 xcconfig = root / "Build.xcconfig"
 text = xcconfig.read_text()
 marker = "// WLOC CoreDevice bridge"
