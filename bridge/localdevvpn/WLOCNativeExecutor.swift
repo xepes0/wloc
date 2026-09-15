@@ -66,8 +66,13 @@ final class WLOCNativeExecutor: WLOCBridgeExecuting {
         // Active DVT sessions support coordinate replacement without another
         // Bonjour discovery, pair verify or secure-tunnel setup.
         if location.isActive {
-            try location.updateLocation(latitude: latitude, longitude: longitude)
-            return
+            do {
+                try location.updateLocation(latitude: latitude, longitude: longitude)
+                return
+            } catch {
+                keepAlive.stop()
+                throw error
+            }
         }
 
         do {
@@ -80,6 +85,9 @@ final class WLOCNativeExecutor: WLOCBridgeExecuting {
             // Each candidate is cryptographically checked by the native engine via
             // PairingRecord.alt_irk + identifier/authTag before pair verify. Stale or
             // foreign Bonjour announcements therefore fail before DVT opens.
+            // Preserve the final typed failure instead of collapsing all failures
+            // into a generic candidate-rejected error; the coordinator can then
+            // return a safe diagnostic code to the WLOC page.
             var lastError: Error?
             for candidate in candidates {
                 do {
@@ -97,7 +105,8 @@ final class WLOCNativeExecutor: WLOCBridgeExecuting {
             }
 
             if let lastError {
-                onDiagnostic?("No discovered RemotePairing service matched the saved pairing: \(lastError)")
+                onDiagnostic?("No discovered RemotePairing service produced a usable DVT session.")
+                throw lastError
             }
             throw ExecutorError.everyCandidateRejected
         } catch {
