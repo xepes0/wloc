@@ -33,6 +33,7 @@ enum WLOCBridgeParseError: LocalizedError, Equatable {
     case wrongHost
     case unsupportedVersion
     case unsupportedOperation
+    case duplicateQueryItem
     case missingRequestID
     case invalidCallback
     case callbackHostNotAllowed
@@ -45,6 +46,7 @@ enum WLOCBridgeParseError: LocalizedError, Equatable {
         case .wrongHost: return "Unsupported LocalDevVPN host."
         case .unsupportedVersion: return "Unsupported WLOC bridge version."
         case .unsupportedOperation: return "Unsupported WLOC bridge operation."
+        case .duplicateQueryItem: return "The WLOC URL contains a duplicate query parameter."
         case .missingRequestID: return "Missing WLOC request identifier."
         case .invalidCallback: return "The WLOC callback URL is invalid."
         case .callbackHostNotAllowed: return "The WLOC callback host is not allowed."
@@ -79,11 +81,18 @@ enum WLOCDeepLinkParser {
         guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
             throw WLOCBridgeParseError.unsupportedVersion
         }
-        let values = Dictionary(
-            uniqueKeysWithValues: (components.queryItems ?? []).compactMap { item in
-                item.value.map { (item.name, $0) }
+
+        // Do not use Dictionary(uniqueKeysWithValues:) here. A public custom URL
+        // scheme can be invoked by arbitrary pages, and duplicate query keys would
+        // otherwise trigger a runtime trap instead of a clean rejection.
+        var values: [String: String] = [:]
+        for item in components.queryItems ?? [] {
+            guard let value = item.value else { continue }
+            if values[item.name] != nil {
+                throw WLOCBridgeParseError.duplicateQueryItem
             }
-        )
+            values[item.name] = value
+        }
 
         guard Int(values["v"] ?? "") == WLOCBridgeRequest.version else {
             throw WLOCBridgeParseError.unsupportedVersion
