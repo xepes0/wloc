@@ -54,21 +54,10 @@ final class WLOCNativeExecutor: WLOCBridgeExecuting {
             throw ExecutorError.notPaired
         }
 
-        // If a DVT session is already active, updating coordinates does not need
-        // another Bonjour discovery or pair-verify round-trip.
+        // Active DVT sessions support coordinate replacement without another
+        // Bonjour discovery, pair verify or secure-tunnel setup.
         if location.isActive {
-            let placeholder = WLOCRemotePairingService(
-                name: "active-session",
-                port: 1,
-                identifier: "active-session",
-                authTag: "active-session"
-            )
-            try await location.setLocation(
-                pairingRecord: pairingRecord,
-                service: placeholder,
-                latitude: latitude,
-                longitude: longitude
-            )
+            try location.updateLocation(latitude: latitude, longitude: longitude)
             return
         }
 
@@ -84,7 +73,7 @@ final class WLOCNativeExecutor: WLOCBridgeExecuting {
         var lastError: Error?
         for candidate in candidates {
             do {
-                try await location.setLocation(
+                try await location.startLocation(
                     pairingRecord: pairingRecord,
                     service: candidate,
                     latitude: latitude,
