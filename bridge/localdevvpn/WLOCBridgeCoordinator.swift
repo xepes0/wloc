@@ -95,13 +95,19 @@ final class WLOCBridgeCoordinator {
 
                 await openCallback(for: pending.request, status: "ok", code: nil)
             } catch {
-                // Do not put raw diagnostics in the callback URL. The production
-                // executor should map known failures to one of the fixed codes.
+                // Raw diagnostics stay inside the host app. The browser receives
+                // only a fixed code that is useful for troubleshooting and never
+                // contains pairing records, device identifiers, PSKs or service
+                // metadata.
                 onDiagnostic?("WLOC operation failed: \(error.localizedDescription)")
+                let code = safeErrorCode(
+                    for: error,
+                    operation: pending.request.operation
+                )
                 await openCallback(
                     for: pending.request,
                     status: "error",
-                    code: BridgeErrorCode.internalError.rawValue
+                    code: code.rawValue
                 )
             }
         }
@@ -117,6 +123,80 @@ final class WLOCBridgeCoordinator {
                 code: BridgeErrorCode.rejected.rawValue
             )
         }
+    }
+
+    private func safeErrorCode(
+        for error: Error,
+        operation: WLOCBridgeOperation
+    ) -> BridgeErrorCode {
+        if let executorError = error as? WLOCNativeExecutor.ExecutorError {
+            switch executorError {
+            case .notPaired:
+                return .notPaired
+            case .noRemotePairingService:
+                return .serviceNotFound
+            case .everyCandidateRejected:
+                return .locationRejected
+            }
+        }
+
+        if error is WLOCNativePairingError {
+            return .pairingFailed
+        }
+
+        if let discoveryError = error as? WLOCBonjourDiscovery.DiscoveryError {
+            switch discoveryError {
+            case .timedOut:
+                return .serviceNotFound
+            case .browserFailed:
+                // NetServiceBrowser does not expose a stable permission-specific
+                // typed error here. This is still more actionable than a generic
+                // internal failure and covers local-network discovery failures.
+                return .localNetworkDenied
+            case .alreadyRunning:
+                return .internalError
+            }
+        }
+
+        if error is TunnelManager.WLOCTunnelError {
+            return .tunnelFailed
+        }
+
+        if error is WLOCBackgroundKeepAlive.KeepAliveError {
+            return .backgroundUnavailable
+        }
+
+        if let locationError = error as? WLOCNativeLocationController.LocationError {
+            switch locationError {
+            case .emptyPairingRecord:
+                return .notPaired
+            case .startFailed, .updateFailed:
+                return .dvtFailed
+            case .stopFailed:
+                return .clearFailed
+            case .engineUnavailable, .busy, .notActive:
+                return operation == .clear ? .clearFailed : .internalError
+            }
+        }
+
+        if let storeError = error as? WLOCKeychainStore.StoreError {
+            switch storeError {
+            case .emptyRecord:
+                return operation == .pair ? .pairingFailed : .notPaired
+            case .unexpectedStatus:
+                return .internalError
+            }
+        }
+
+        if error is WLOCBridgeParseError {
+            return .locationRejected
+        }
+
+        if error is CancellationError {
+            return .rejected
+        }
+
+        return operation == .clear ? .clearFailed : .internalError
     }
 
     private func summary(for request: WLOCBridgeRequest) -> String {
