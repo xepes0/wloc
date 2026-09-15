@@ -59,6 +59,7 @@ for source in \
   WLOCBonjourDiscovery.swift \
   WLOCNativePairingController.swift \
   WLOCNativeLocationController.swift \
+  WLOCBackgroundKeepAlive.swift \
   WLOCNativeExecutor.swift \
   TunnelManager+WLOC.swift \
   WLOCLocalDevVPNBridgeHost.swift \
@@ -85,13 +86,19 @@ if include not in text:
     text += include + "\n"
     bridging.write_text(text)
 
-# Info.plist: add the exact Bonjour services used by iOS Remote Pairing.
+# Info.plist: Remote Pairing needs local-network Bonjour. The first PoC keeps
+# the DVT session alive in the host app with background CoreLocation updates;
+# those coordinates are never used as WLOC's control source.
 plist_path = app / "Info.plist"
 with plist_path.open("rb") as fh:
     plist = plistlib.load(fh)
 plist.setdefault(
     "NSLocalNetworkUsageDescription",
     "WLOC uses the local device tunnel to pair with and control this iPhone for development location testing.",
+)
+plist.setdefault(
+    "NSLocationWhenInUseUsageDescription",
+    "WLOC uses low-accuracy location updates only to keep an active development location-simulation session running in the background.",
 )
 services = list(plist.get("NSBonjourServices", []))
 for service in [
@@ -102,6 +109,10 @@ for service in [
     if service not in services:
         services.append(service)
 plist["NSBonjourServices"] = services
+background_modes = list(plist.get("UIBackgroundModes", []))
+if "location" not in background_modes:
+    background_modes.append("location")
+plist["UIBackgroundModes"] = background_modes
 with plist_path.open("wb") as fh:
     plistlib.dump(plist, fh, fmt=plistlib.FMT_XML, sort_keys=False)
 
