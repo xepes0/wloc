@@ -3,7 +3,7 @@ name = "wloc_coredevice"
 version = "0.1.0"
 edition = "2024"
 description = "Minimal native CoreDevice bridge for WLOC iOS 27"
-license = "AGPL-3.0-only"
+license = "MIT"
 publish = false
 
 [lib]
