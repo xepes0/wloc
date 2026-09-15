@@ -1,9 +1,17 @@
 name: Validate
 on:
   push:
+    branches:
+      - main
   pull_request:
+
+concurrency:
+  group: validate-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
+
 jobs:
   validate:
     runs-on: ubuntu-latest
