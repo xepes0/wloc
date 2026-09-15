@@ -16,7 +16,7 @@ app.get("/", (c) => {
 });
 
 // iOS 27+ CoreDevice 实验入口。与旧 gs-loc MITM 页面分开，避免尚未完成的
-// transport 误伤现有用户。
+// bridge 误伤现有用户。
 app.get("/ios27", (c) => {
   return c.html(getIos27PageHtml());
 });
@@ -24,12 +24,16 @@ app.get("/ios27", (c) => {
 app.get("/api/ios27/capabilities", (c) => {
   c.header("Access-Control-Allow-Origin", "*");
   return c.json({
-    version: 1,
+    version: 2,
     legacyMitm: true,
     coreDeviceFrontend: true,
     browserRawTcp: false,
-    transportRequired: true,
-    localDevVPNRole: "device-tunnel-only",
+    preferredControl: "LocalDevVPN URL bridge",
+    stockLocalDevVPNSupported: false,
+    wlocEnabledLocalDevVPNRequired: true,
+    localDevVPNRole: "device-tunnel-and-coredevice-host",
+    bridgeScheme: "localdevvpn://wloc",
+    bridgeOperations: ["pair", "set", "clear", "status"],
     coreDevicePath: ["RemotePairing", "RSD", "DVT", "LocationSimulation"]
   });
 });
