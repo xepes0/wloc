@@ -25,3 +25,30 @@ jobs:
         run: |
           rustup toolchain install stable --profile minimal
           cargo +stable check --manifest-path bridge/native/Cargo.toml
+
+  localdevvpn-integration:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Clone LocalDevVPN
+        run: git clone --depth 1 https://github.com/jkcoxson/LocalDevVPN.git "$RUNNER_TEMP/LocalDevVPN"
+      - name: Prepare WLOC-enabled LocalDevVPN
+        run: bash bridge/localdevvpn/integrate-localdevvpn.sh "$RUNNER_TEMP/LocalDevVPN" simulator
+      - name: Build for iOS Simulator
+        run: |
+          case "$(uname -m)" in
+            arm64) BUILD_ARCH=arm64 ;;
+            x86_64) BUILD_ARCH=x86_64 ;;
+            *) echo "unsupported runner architecture"; exit 1 ;;
+          esac
+          xcodebuild \
+            -project "$RUNNER_TEMP/LocalDevVPN/LocalDevVPN.xcodeproj" \
+            -scheme LocalDevVPN \
+            -configuration Debug \
+            -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            ARCHS="$BUILD_ARCH" \
+            ONLY_ACTIVE_ARCH=YES \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            build
