@@ -1,0 +1,21 @@
+[package]
+name = "wloc_coredevice"
+version = "0.1.0"
+edition = "2024"
+description = "Minimal native CoreDevice bridge for WLOC iOS 27"
+license = "AGPL-3.0-only"
+publish = false
+
+[lib]
+name = "wloc_coredevice"
+crate-type = ["staticlib", "rlib"]
+
+[dependencies]
+idevice = { git = "https://github.com/jkcoxson/idevice.git", rev = "2bc58aaea40c9ced0167c8e7b512ee13c34c760f", default-features = false, features = ["dvt", "location_simulation", "remote_pairing", "rsd", "rustcrypto", "tcp", "tunnel_tcp_stack"] }
+tokio = { version = "1", features = ["rt-multi-thread", "net", "time", "macros"] }
+
+[profile.release]
+codegen-units = 1
+lto = "thin"
+opt-level = 3
+strip = "symbols"
