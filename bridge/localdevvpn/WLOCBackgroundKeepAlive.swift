@@ -5,7 +5,7 @@ import Foundation
 /// session is active. CoreLocation is *not* used as the simulated-location
 /// source and received coordinates are never stored or forwarded.
 @MainActor
-final class WLOCBackgroundKeepAlive: NSObject, CLLocationManagerDelegate {
+final class WLOCBackgroundKeepAlive: NSObject, @preconcurrency CLLocationManagerDelegate {
     enum KeepAliveError: Error {
         case servicesDisabled
         case denied
@@ -68,7 +68,9 @@ final class WLOCBackgroundKeepAlive: NSObject, CLLocationManagerDelegate {
             authorizationContinuation = continuation
             manager.requestWhenInUseAuthorization()
             authorizationTimeout = Task { @MainActor [weak self] in
-                try? await Task.sleep(for: .seconds(30))
+                // Use the nanoseconds overload for LocalDevVPN's iOS 14
+                // deployment target. The Duration-based overload is iOS 16+.
+                try? await Task.sleep(nanoseconds: 30_000_000_000)
                 guard let self, let continuation = self.authorizationContinuation else { return }
                 self.authorizationContinuation = nil
                 self.authorizationTimeout = nil
