@@ -135,12 +135,13 @@ if new not in text:
     text = text.replace(old, new, 1)
 app_swift.write_text(text)
 
-# Link the Rust static library from a root-level folder. Build.xcconfig is shared
-# by both targets; unused static-library objects are not pulled into TunnelProv.
+# Link the Rust static library from a root-level folder. WLOC's CoreDevice
+# transport only exists on modern iOS, so the integrated build deliberately
+# raises LocalDevVPN's deployment floor to iOS 17 without changing upstream.
 xcconfig = root / "Build.xcconfig"
 text = xcconfig.read_text()
 marker = "// WLOC CoreDevice bridge"
-block = '''\n// WLOC CoreDevice bridge\nHEADER_SEARCH_PATHS = $(inherited) "$(SRCROOT)/LocalDevVPN"\nLIBRARY_SEARCH_PATHS = $(inherited) "$(SRCROOT)/WLOCNative"\nOTHER_LDFLAGS = $(inherited) -lwloc_coredevice\n'''
+block = '''\n// WLOC CoreDevice bridge\nIPHONEOS_DEPLOYMENT_TARGET = 17.0\nHEADER_SEARCH_PATHS = $(inherited) "$(SRCROOT)/LocalDevVPN"\nLIBRARY_SEARCH_PATHS = $(inherited) "$(SRCROOT)/WLOCNative"\nOTHER_LDFLAGS = $(inherited) -lwloc_coredevice\n'''
 if marker not in text:
     if not text.endswith("\n"):
         text += "\n"
