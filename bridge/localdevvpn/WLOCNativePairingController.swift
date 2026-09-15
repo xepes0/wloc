@@ -1,4 +1,5 @@
 import Foundation
+import UIKit
 
 struct WLOCPairingMaterial: Sendable {
     let record: Data
@@ -32,6 +33,7 @@ final class WLOCNativePairingController: NSObject, NetServiceDelegate {
     private var activeSession: OpaquePointer?
     private var continuation: CheckedContinuation<WLOCPairingMaterial, Error>?
     private var runID: UUID?
+    private var backgroundTask = UIBackgroundTaskIdentifier.invalid
 
     func pair() async throws -> WLOCPairingMaterial {
         guard activeSession == nil, continuation == nil else {
@@ -41,6 +43,7 @@ final class WLOCNativePairingController: NSObject, NetServiceDelegate {
             throw WLOCNativePairingError.engineUnavailable
         }
 
+        beginBackgroundTime()
         let id = UUID()
         runID = id
         activeSession = session
@@ -161,6 +164,23 @@ final class WLOCNativePairingController: NSObject, NetServiceDelegate {
         }
     }
 
+    private func beginBackgroundTime() {
+        endBackgroundTime()
+        backgroundTask = UIApplication.shared.beginBackgroundTask(withName: "WLOC Remote Pairing") { [weak self] in
+            Task { @MainActor in
+                guard let self else { return }
+                self.onDiagnostic?("RemotePairing background time expired.")
+                self.cancel()
+            }
+        }
+    }
+
+    private func endBackgroundTime() {
+        guard backgroundTask != .invalid else { return }
+        UIApplication.shared.endBackgroundTask(backgroundTask)
+        backgroundTask = .invalid
+    }
+
     private func finish(
         id: UUID,
         session: OpaquePointer,
@@ -175,6 +195,7 @@ final class WLOCNativePairingController: NSObject, NetServiceDelegate {
         runID = nil
         activeSession = nil
         stopPublishing()
+        endBackgroundTime()
         wloc_pairing_session_destroy(session)
 
         guard let continuation else { return }
