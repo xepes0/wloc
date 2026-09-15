@@ -9,6 +9,7 @@ final class WLOCNativeLocationController {
         case updateFailed
         case stopFailed
         case busy
+        case notActive
     }
 
     var onDiagnostic: ((String) -> Void)?
@@ -27,18 +28,18 @@ final class WLOCNativeLocationController {
     private var stopContinuation: CheckedContinuation<Void, Error>?
     private var cancellationRequested = false
 
-    func setLocation(
+    func updateLocation(latitude: Double, longitude: Double) throws {
+        guard let activeSession, isActive else { throw LocationError.notActive }
+        let result = wloc_location_session_update(activeSession, latitude, longitude)
+        guard result == 0 else { throw LocationError.updateFailed }
+    }
+
+    func startLocation(
         pairingRecord: Data,
         service: WLOCRemotePairingService,
         latitude: Double,
         longitude: Double
     ) async throws {
-        if let activeSession, isActive {
-            let result = wloc_location_session_update(activeSession, latitude, longitude)
-            guard result == 0 else { throw LocationError.updateFailed }
-            return
-        }
-
         guard activeSession == nil, startContinuation == nil else {
             throw LocationError.busy
         }
@@ -163,14 +164,10 @@ final class WLOCNativeLocationController {
         let nativeSucceeded = returnCode == 0
         if let startContinuation {
             self.startContinuation = nil
-            if nativeSucceeded {
-                // A zero return before the started callback is unexpected. Do not
-                // report a location as active unless the native callback fired.
-                startContinuation.resume(throwing: LocationError.startFailed)
-            } else {
-                if let errorText, !errorText.isEmpty { onDiagnostic?(errorText) }
-                startContinuation.resume(throwing: LocationError.startFailed)
-            }
+            if let errorText, !errorText.isEmpty { onDiagnostic?(errorText) }
+            // A zero return before the started callback is still a failed start:
+            // the native callback is the only proof LocationSimulation.set() ran.
+            startContinuation.resume(throwing: LocationError.startFailed)
         }
 
         if let stopContinuation {
