@@ -38,10 +38,11 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Clone LocalDevVPN
-        run: git clone --depth 1 https://github.com/jkcoxson/LocalDevVPN.git "$RUNNER_TEMP/LocalDevVPN"
-      - name: Prepare WLOC-enabled LocalDevVPN
-        run: bash bridge/localdevvpn/integrate-localdevvpn.sh "$RUNNER_TEMP/LocalDevVPN" simulator
+
+      - name: Clone LocalDevVPN for Simulator
+        run: git clone --depth 1 https://github.com/jkcoxson/LocalDevVPN.git "$RUNNER_TEMP/LocalDevVPNSimulator"
+      - name: Prepare WLOC-enabled LocalDevVPN for Simulator
+        run: bash bridge/localdevvpn/integrate-localdevvpn.sh "$RUNNER_TEMP/LocalDevVPNSimulator" simulator
       - name: Build for iOS Simulator
         run: |
           case "$(uname -m)" in
@@ -50,12 +51,30 @@ jobs:
             *) echo "unsupported runner architecture"; exit 1 ;;
           esac
           xcodebuild \
-            -project "$RUNNER_TEMP/LocalDevVPN/LocalDevVPN.xcodeproj" \
+            -project "$RUNNER_TEMP/LocalDevVPNSimulator/LocalDevVPN.xcodeproj" \
             -scheme LocalDevVPN \
             -configuration Debug \
             -sdk iphonesimulator \
             -destination 'generic/platform=iOS Simulator' \
             ARCHS="$BUILD_ARCH" \
+            ONLY_ACTIVE_ARCH=YES \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            build
+
+      - name: Clone LocalDevVPN for Device
+        run: git clone --depth 1 https://github.com/jkcoxson/LocalDevVPN.git "$RUNNER_TEMP/LocalDevVPNDevice"
+      - name: Prepare WLOC-enabled LocalDevVPN for Device
+        run: bash bridge/localdevvpn/integrate-localdevvpn.sh "$RUNNER_TEMP/LocalDevVPNDevice" device
+      - name: Build for Generic iOS Device without signing
+        run: |
+          xcodebuild \
+            -project "$RUNNER_TEMP/LocalDevVPNDevice/LocalDevVPN.xcodeproj" \
+            -scheme LocalDevVPN \
+            -configuration Debug \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            ARCHS=arm64 \
             ONLY_ACTIVE_ARCH=YES \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
